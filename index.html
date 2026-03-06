@@ -492,7 +492,7 @@ function renderPMCView(pmc, ent, props, pmcMarkets) {
     const showAll = selectedPMCMarkets.size >= pmcMarkets.length;
     const label = showAll ? `All un-enrolled properties (${filtered.length})` : `Un-enrolled properties in selected markets (${filtered.length} of ${props.length})`;
     return `<div class="card">
-    <div class="card-hdr"><h3 id="props-tbl-hdr">${label}</h3><div style="display:flex;align-items:center;gap:10px"><span style="font-size:12px;color:var(--muted)">Sorted by priority score</span><button class="btn btn-outline btn-sm" onclick="exportAccountCSV()">&#8681; Export CSV</button></div></div>
+    <div class="card-hdr"><h3 id="props-tbl-hdr">${label}</h3><div style="display:flex;align-items:center;gap:10px"><span style="font-size:12px;color:var(--muted)">Sorted by priority score</span><button class="btn btn-outline btn-sm" onclick="exportAccountCSV()">&#8681; Export XLSX</button></div></div>
     <div class="tbl-wrap"><table>
       <thead><tr>
         <th>Community</th><th>Market</th><th>Occ.</th><th>Rent YoY</th>
@@ -642,7 +642,7 @@ function selectMarket(marketName) {
   </div>
 
   <div class="card">
-    <div class="card-hdr"><h3>Un-enrolled Properties in ${marketName} (${marketProps.length})</h3><button class="btn btn-outline btn-sm" onclick="exportMarketCSV()">&#8681; Export CSV</button></div>
+    <div class="card-hdr"><h3>Un-enrolled Properties in ${marketName} (${marketProps.length})</h3><button class="btn btn-outline btn-sm" onclick="exportMarketCSV()">&#8681; Export XLSX</button></div>
     <div class="tbl-wrap"><table>
       <thead><tr>
         <th>PMC</th><th>Community</th><th>Occ.</th><th>Rent YoY</th>
@@ -694,15 +694,178 @@ function copyEmail() {
   });
 }
 
-// ===== EXPORT CSV =====
-function exportCSV(rows, filename) {
+// ===== EXPORT XLSX =====
+function exportXLSX(rows, filename) {
   const headers = ['PMC','Community','Market','Occupancy','Rent YoY','Vacancy','Concession Rate','Competitors on LIFT','Total Competitors','Priority Score','Priority Tier'];
-  const escape = v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
-  const lines = [headers.map(escape).join(',')];
-  rows.forEach(p => {
-    lines.push([p.p, p.c, p.m, p.occ, p.yoy, p.vac, p.con, p.clift, p.ttl, parseFloat(p.score||0).toFixed(1), p.tier].map(escape).join(','));
+  const colWidths = [28,36,22,12,12,12,18,22,20,14,14];
+
+  function xmlEsc(v) {
+    return String(v == null ? '' : v)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+      .replace(/"/g,'&quot;').replace(/'/g,'&apos;');
+  }
+
+  // Build sheet rows
+  let sheetRows = '';
+  const addRow = (cells, rowIdx, bold) => {
+    const cellXml = cells.map((val, ci) => {
+      const col = String.fromCharCode(65 + ci);
+      const ref = col + rowIdx;
+      const s = bold ? ' s="1"' : '';
+      const num = !isNaN(val) && val !== '' && val !== null;
+      if (num) return `<c r="${ref}"${s} t="n"><v>${val}</v></c>`;
+      return `<c r="${ref}"${s} t="inlineStr"><is><t>${xmlEsc(val)}</t></is></c>`;
+    }).join('');
+    sheetRows += `<row r="${rowIdx}">${cellXml}</row>`;
+  };
+
+  addRow(headers, 1, true);
+  rows.forEach((p, i) => {
+    addRow([p.p, p.c, p.m, p.occ, p.yoy, p.vac, p.con, p.clift, p.ttl, parseFloat(p.score||0).toFixed(1), p.tier], i + 2, false);
   });
-  const blob = new Blob([lines.join('\n')], {type:'text/csv'});
+
+  const colsXml = colWidths.map((w,i) => `<col min="${i+1}" max="${i+1}" width="${w}" customWidth="1"/>`).join('');
+  const lastRow = rows.length + 1;
+  const lastCol = String.fromCharCode(65 + headers.length - 1);
+
+  const sheetXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+<sheetViews><sheetView workbookViewId="0"><selection activeCell="A1"/></sheetView></sheetViews>
+<cols>${colsXml}</cols>
+<sheetData>${sheetRows}</sheetData>
+<autoFilter ref="A1:${lastCol}1"/>
+<tableStyleInfo name="TableStyleMedium2"/>
+</worksheet>`;
+
+  const stylesXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+<fonts><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts>
+<fills><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill>
+<fill><patternFill patternType="solid"><fgColor rgb="FF8434D6"/></patternFill></fill></fills>
+<borders><border><left/><right/><top/><bottom/><diagonal/></border></borders>
+<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
+<cellXfs>
+<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
+<xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0"><alignment horizontal="left"/></xf>
+</cellXfs>
+</styleSheet>`;
+
+  const wbXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+  xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+<sheets><sheet name="LIFT Properties" sheetId="1" r:id="rId1"/></sheets>
+</workbook>`;
+
+  const wbRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+</Relationships>`;
+
+  const contentTypes = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+<Default Extension="xml" ContentType="application/xml"/>
+<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
+</Types>`;
+
+  const rootRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+</Relationships>`;
+
+  // Build ZIP (XLSX is a ZIP) using a minimal pure-JS implementation
+  function strToBytes(s) {
+    const bytes = [];
+    for (let i = 0; i < s.length; i++) {
+      const c = s.charCodeAt(i);
+      if (c < 128) bytes.push(c);
+      else if (c < 2048) { bytes.push((c>>6)|192); bytes.push((c&63)|128); }
+      else { bytes.push((c>>12)|224); bytes.push(((c>>6)&63)|128); bytes.push((c&63)|128); }
+    }
+    return new Uint8Array(bytes);
+  }
+
+  function crc32(buf) {
+    const tbl = [];
+    for (let i=0;i<256;i++){let c=i;for(let j=0;j<8;j++)c=c&1?(0xEDB88320^(c>>>1)):c>>>1;tbl[i]=c;}
+    let crc=0xFFFFFFFF;
+    for (let i=0;i<buf.length;i++) crc=(crc>>>8)^tbl[(crc^buf[i])&0xFF];
+    return (crc^0xFFFFFFFF)>>>0;
+  }
+
+  function u16le(n){return [n&0xFF,(n>>8)&0xFF];}
+  function u32le(n){return [n&0xFF,(n>>8)&0xFF,(n>>16)&0xFF,(n>>24)&0xFF];}
+
+  function makeEntry(name, data) {
+    const nameBytes = strToBytes(name);
+    const crc = crc32(data);
+    const local = [
+      0x50,0x4B,0x03,0x04, // local file header sig
+      0x14,0x00,           // version needed
+      0x00,0x00,           // flags
+      0x00,0x00,           // compression (stored)
+      0x00,0x00,0x00,0x00, // mod time/date
+      ...u32le(crc),
+      ...u32le(data.length),
+      ...u32le(data.length),
+      ...u16le(nameBytes.length),
+      0x00,0x00,           // extra field len
+      ...nameBytes,
+      ...data
+    ];
+    return {local: new Uint8Array(local), nameBytes, crc, size: data.length};
+  }
+
+  const files = [
+    ['[Content_Types].xml', contentTypes],
+    ['_rels/.rels', rootRels],
+    ['xl/workbook.xml', wbXml],
+    ['xl/_rels/workbook.xml.rels', wbRels],
+    ['xl/worksheets/sheet1.xml', sheetXml],
+    ['xl/styles.xml', stylesXml],
+  ];
+
+  const entries = files.map(([n,s]) => ({name:n, data:strToBytes(s)}));
+  const parts = [];
+  const centralDirs = [];
+  let offset = 0;
+
+  entries.forEach(({name, data}) => {
+    const nameBytes = strToBytes(name);
+    const crc = crc32(data);
+    const local = new Uint8Array([
+      0x50,0x4B,0x03,0x04,0x14,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+      ...u32le(crc),...u32le(data.length),...u32le(data.length),
+      ...u16le(nameBytes.length),0x00,0x00,...nameBytes,...data
+    ]);
+    parts.push(local);
+    centralDirs.push({nameBytes, crc, size:data.length, offset});
+    offset += local.length;
+  });
+
+  const cdEntries = centralDirs.map(({nameBytes,crc,size,offset}) => new Uint8Array([
+    0x50,0x4B,0x01,0x02,0x14,0x00,0x14,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+    ...u32le(crc),...u32le(size),...u32le(size),
+    ...u16le(nameBytes.length),0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+    ...u32le(offset),...nameBytes
+  ]));
+
+  const cdSize = cdEntries.reduce((s,e)=>s+e.length,0);
+  const eocd = new Uint8Array([
+    0x50,0x4B,0x05,0x06,0x00,0x00,0x00,0x00,
+    ...u16le(entries.length),...u16le(entries.length),
+    ...u32le(cdSize),...u32le(offset),0x00,0x00
+  ]);
+
+  const total = [...parts,...cdEntries,eocd].reduce((s,a)=>s+a.length,0);
+  const out = new Uint8Array(total);
+  let pos = 0;
+  [...parts,...cdEntries,eocd].forEach(a=>{out.set(a,pos);pos+=a.length;});
+
+  const blob = new Blob([out], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = filename;
@@ -711,14 +874,15 @@ function exportCSV(rows, filename) {
 }
 
 function exportAccountCSV() {
-  const rows = PROPS_DATA.filter(p => selectedPMCMarkets.has(p.m)).sort((a,b) => parseFloat(b.score||0) - parseFloat(a.score||0));
-  const mktList = [...selectedPMCMarkets].sort().join('-');
-  exportCSV(rows, `LIFT_${(window._currentPMC||'export').replace(/\s+/g,'_')}_${mktList || 'all'}.csv`);
+  const pmc = window._currentPMC || '';
+  const rows = PROPS_DATA.filter(p => p.p === pmc && selectedPMCMarkets.has(p.m)).sort((a,b) => parseFloat(b.score||0) - parseFloat(a.score||0));
+  const mktList = [...selectedPMCMarkets].sort().join('_');
+  exportXLSX(rows, `LIFT_${pmc.replace(/[^a-zA-Z0-9]/g,'_')}${mktList ? '_' + mktList.replace(/[^a-zA-Z0-9]/g,'_') : ''}.xlsx`);
 }
 
 function exportMarketCSV() {
   const rows = PROPS_DATA.filter(p => p.m === selectedMarket).sort((a,b) => parseFloat(b.score||0) - parseFloat(a.score||0));
-  exportCSV(rows, `LIFT_${(selectedMarket||'market').replace(/\s+/g,'_')}.csv`);
+  exportXLSX(rows, `LIFT_${(selectedMarket||'market').replace(/[^a-zA-Z0-9]/g,'_')}.xlsx`);
 }
 
 // ===== INIT =====
