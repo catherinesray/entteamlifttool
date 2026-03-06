@@ -492,7 +492,7 @@ function renderPMCView(pmc, ent, props, pmcMarkets) {
     const showAll = selectedPMCMarkets.size >= pmcMarkets.length;
     const label = showAll ? `All un-enrolled properties (${filtered.length})` : `Un-enrolled properties in selected markets (${filtered.length} of ${props.length})`;
     return `<div class="card">
-    <div class="card-hdr"><h3 id="props-tbl-hdr">${label}</h3><span style="font-size:12px;color:var(--muted)">Sorted by priority score</span></div>
+    <div class="card-hdr"><h3 id="props-tbl-hdr">${label}</h3><div style="display:flex;align-items:center;gap:10px"><span style="font-size:12px;color:var(--muted)">Sorted by priority score</span><button class="btn btn-outline btn-sm" onclick="exportAccountCSV()">&#8681; Export CSV</button></div></div>
     <div class="tbl-wrap"><table>
       <thead><tr>
         <th>Community</th><th>Market</th><th>Occ.</th><th>Rent YoY</th>
@@ -557,6 +557,7 @@ function renderPMCView(pmc, ent, props, pmcMarkets) {
   <div id="props-table-container">${buildPropsTable()}</div>`;
 
   window._pmcMarkets = pmcMarkets;
+  window._currentPMC = pmcName;
   window._buildPropsTable = buildPropsTable;
   window._buildScopePanel = buildScopePanel;
   window._getScopeSummary = getScopeSummary;
@@ -641,7 +642,7 @@ function selectMarket(marketName) {
   </div>
 
   <div class="card">
-    <div class="card-hdr"><h3>Un-enrolled Properties in ${marketName} (${marketProps.length})</h3></div>
+    <div class="card-hdr"><h3>Un-enrolled Properties in ${marketName} (${marketProps.length})</h3><button class="btn btn-outline btn-sm" onclick="exportMarketCSV()">&#8681; Export CSV</button></div>
     <div class="tbl-wrap"><table>
       <thead><tr>
         <th>PMC</th><th>Community</th><th>Occ.</th><th>Rent YoY</th>
@@ -691,6 +692,33 @@ function copyEmail() {
     t.classList.add('show');
     setTimeout(() => t.classList.remove('show'), 2200);
   });
+}
+
+// ===== EXPORT CSV =====
+function exportCSV(rows, filename) {
+  const headers = ['PMC','Community','Market','Occupancy','Rent YoY','Vacancy','Concession Rate','Competitors on LIFT','Total Competitors','Priority Score','Priority Tier'];
+  const escape = v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+  const lines = [headers.map(escape).join(',')];
+  rows.forEach(p => {
+    lines.push([p.p, p.c, p.m, p.occ, p.yoy, p.vac, p.con, p.clift, p.ttl, parseFloat(p.score||0).toFixed(1), p.tier].map(escape).join(','));
+  });
+  const blob = new Blob([lines.join('\n')], {type:'text/csv'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function exportAccountCSV() {
+  const rows = PROPS_DATA.filter(p => selectedPMCMarkets.has(p.m)).sort((a,b) => parseFloat(b.score||0) - parseFloat(a.score||0));
+  const mktList = [...selectedPMCMarkets].sort().join('-');
+  exportCSV(rows, `LIFT_${(window._currentPMC||'export').replace(/\s+/g,'_')}_${mktList || 'all'}.csv`);
+}
+
+function exportMarketCSV() {
+  const rows = PROPS_DATA.filter(p => p.m === selectedMarket).sort((a,b) => parseFloat(b.score||0) - parseFloat(a.score||0));
+  exportCSV(rows, `LIFT_${(selectedMarket||'market').replace(/\s+/g,'_')}.csv`);
 }
 
 // ===== INIT =====
